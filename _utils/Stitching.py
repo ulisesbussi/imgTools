@@ -80,6 +80,8 @@ class Stitching(object):
 		self.corDetected 	= list()
 		self.qLvlList 		= list()
 
+		self.ndth =0
+		self.T = np.array([0,0])
 
 		self.feature_params = dict( maxCorners = 1000, qualityLevel = self.qLvl,
 								minDistance = 7, blockSize = 7 )
@@ -153,7 +155,7 @@ class Stitching(object):
 			sTiT = np.concatenate([sTiT, relleno], axis=0)
 			hS, wS = sTiT.shape[:2] # tamaño actual
 	
-		return sTiT
+		return affi,sTiT
 
 
 	def _undistort(self,frame):
@@ -245,8 +247,9 @@ class Stitching(object):
 			# ==== ACCUMULATE AFFINE: GET MAP FROM NEW FRAME TO STITCH
 			affi[:,2] += affi[:,:2].dot(retval[:,2])
 			affi[:,:2] = affi[:,:2].dot(retval[:,:2])
+			affi,sTiT = self._bboxing(affi,esquinas,sTiT)
+
 			self.afCor.append(affi) #affine Corregida?
-			sTiT = self._bboxing(affi,esquinas,sTiT)
 
 			# === WARP FRAME TO THE STICHED IMAGE
 			hS, wS = sTiT.shape[:2]
@@ -291,18 +294,15 @@ class Stitching(object):
 		af = np.concatenate([affine,
 						np.array([0,0,1]).reshape(1,3)],axis=0)
 
-		#thMed = self.log_df.loc[self.indexInLog]['OSD.yaw']
-		#thMed = np.deg2rad(thMed)
 		thMed = self.yaw[self.frCount]
 		s,d_theta,T = get_s_theta_T_fromAffine(af)
 
-		oth = self._kf.xPost[-1]
 		self._kf.runOneIt(d_theta,thMed)
-		th = self._kf.xPost[-1]
+		dth = self._kf.xPost[-1] -self._kf.xPost[-2]
 
-		ndth = th-thMed#oth
-		print('diferencia entre dth y el estimado: {:.3f}'.format(ndth.item()-d_theta))
-		newAff = get_Affine_From_s_theta_T(s,ndth,T)
+		self.ndth = d_theta/2 +self.ndth/4 + dth/4
+		self.T = (self.T + T)/2
+		newAff = get_Affine_From_s_theta_T(s,self.ndth,self.T)
 
 		return newAff
 
