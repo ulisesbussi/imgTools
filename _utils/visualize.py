@@ -45,9 +45,9 @@ class Visualizer(object):
 		ret,self.frame = self.video.read()
 		if not ret:
 			raise cv2.error('No hay más Frames')
-		w = int(self.dw/3)
-		h = int(self.dh/3)
-		cv2.imshow('Video',self.frame [h:-h,w:-w])
+		#w = int(self.dw)
+		#h = int(self.dh)
+		cv2.imshow('Video',self.frame)
 		#cv2.imshow('Video',cv2.resize(frame,(self.dw,self.dh)))
 
 

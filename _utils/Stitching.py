@@ -70,7 +70,7 @@ class Stitching(object):
 		#TODO comprar un conejo, ver si aprende a pilotear el drone.
 	def __init__(self, vid, start=None, end=None, pars=None, \
 					sub=None, log=None, fixaffine=False, **kwargs):
-		super(Stitching,self).__init__()
+		#super(Stitching,self).__init__()
 
 		self.downsample = True # i worked with the imges at half size for simplicity
 		# params for ShiTomasi corner detection
@@ -160,7 +160,7 @@ class Stitching(object):
 
 	def _undistort(self,frame):
 		if self.cam_pars is None:
-			raise Warning('No hay parametros de camara definidos!')
+			Warning('No hay parametros de camara definidos!')
 			return frame
 		else:
 			frame = cv2.undistort(frame,self.cam_pars['cameraMatrix'],
@@ -271,8 +271,9 @@ class Stitching(object):
 			if  c == ord('q'): #Salir
 				break
 			frCount += 1
-
+		cv2.namedWindow('stitched')
 		cv2.destroyWindow('stitched')
+		cv2.namedWindow('frame')
 		cv2.destroyWindow('frame')
 		return [sTiT,np.array(self.affines)]
 
@@ -284,6 +285,7 @@ class Stitching(object):
 			th0 = self.yaw[0]
 			self._kf = KalmanFilter(th0,0.04,.04,.01)
 			self.nTheta = th0
+			self.tester = []
 		else:
 			self._kf = None
 
@@ -299,9 +301,11 @@ class Stitching(object):
 
 		self._kf.runOneIt(d_theta,thMed)
 		dth = self._kf.xPost[-1] -self._kf.xPost[-2]
-
+		self.tester.append([d_theta,self.ndth,dth])
 		self.ndth = d_theta/2 +self.ndth/4 + dth/4
-		self.T = (self.T + T)/2
+		q = np.array(self.tester)[:,1].mean()
+		self.ndth  = (self.ndth  + q)/2
+		self.T = T
 		newAff = get_Affine_From_s_theta_T(s,self.ndth,self.T)
 
 		return newAff
