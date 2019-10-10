@@ -7,7 +7,7 @@ Created on Thu Sep 12 16:43:56 2019
 """
 
 import numpy as np
-
+import pandas as pd
 
 
 def get_sRT_fromAffine(affineMatrix):
@@ -49,6 +49,35 @@ def get_Affine_From_s_theta_T(s,theta,T):
 	sR = np.dot(s,R)
 	sRT = np.concatenate([sR,T],axis=1)
 	return sRT
+
+
+
+
+
+
+
+def createDataFramesubt(subt):
+	df_subt = pd.DataFrame(columns = ['frameNumber','dateTime','lat','lon'])
+	for i in range(len(subt)):
+		l 			= subt[i].split('[')
+		if l[0] != '':
+			l0sp 		= l[0].split('\n')
+			datetime 	= ','.join(l0sp[-2].split(',')[:-1])
+			frNum 		= np.int32(l0sp[2].split(':')[1].split(',')[0])
+			la 			= l[-2].replace(']','').replace(' ','').split(':')[-1]
+			lo 			= l[-1].replace(']','').replace(' ','').split(':')[-1].replace('</font>','')
+			df_subt = df_subt.append({'frameNumber':frNum,
+							 'dateTime':pd.to_datetime(datetime),
+							 'lat':np.float(la),
+							 'lon':np.float(lo)},ignore_index=True)
+	return df_subt
+
+
+
+
+
+
+
 
 
 
