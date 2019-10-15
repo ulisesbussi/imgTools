@@ -37,8 +37,10 @@ def NdiCalc(img):
 def VariCalc(img):
 	#Visible Atmospheric Resistant Index[2]
 	ch_r,ch_g,ch_b = img.T
-	gamma=1
-	vari = (1.0*ch_g - ch_r )/(1.0*ch_g + ch_r -ch_b + gamma)
+	gamma=.1
+	q = 1.0*ch_g + ch_r -ch_b
+	q[q==0] = gamma
+	vari = (1.0*ch_g - ch_r )/(q)
 	return vari.T
 
 
