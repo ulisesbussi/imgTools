@@ -57,6 +57,7 @@ def get_Affine_From_s_theta_T(s,theta,T):
 
 
 def createDataFramesubt(subt):
+	subt = subt.split('\n\n')
 	df_subt = pd.DataFrame(columns = ['frameNumber','dateTime','lat','lon'])
 	for i in range(len(subt)):
 		l 			= subt[i].split('[')
