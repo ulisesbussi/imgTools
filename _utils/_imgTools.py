@@ -10,6 +10,28 @@ import numpy as np
 import pandas as pd
 
 
+def LLtoMeters(oldla,oldlo,la,lo):
+	"""Ellipsoidal Earth projected to a plane
+	The FCC prescribes the following formulae for distances not exceeding 475 kilometres (295 mi):[2]"""
+	deltaLat = la-oldla
+	mlat = (la+oldla)/2
+	deltaLon = lo-oldlo
+
+	mlaR = np.deg2rad(mlat)
+	k1 = 	111.13209- 0.56605*np.cos(2*mlaR)+\
+					 0.00012*np.cos(4*mlaR)
+	k2 = 	111.41513*np.cos(mlaR)-\
+				0.09455*np.cos(3*mlaR)+\
+				0.00012*np.cos(5*mlaR)
+	dx =  k2 *deltaLon  *1000 #from km to m
+	dy = k1 *deltaLat  *1000
+	return dx,dy
+
+
+
+
+
+
 def get_sRT_fromAffine(affineMatrix):
 	T = affineMatrix[:,-1]
 	sRot =affineMatrix[:2,:2]
@@ -22,22 +44,25 @@ def get_s_theta_T_fromAffine(affineMatrix):
 	if affineMatrix.ndim == 2:
 		s,R,T = get_sRT_fromAffine(affineMatrix)
 		theta = np.arctan2(*R[::-1,0])
+		return s, theta, T[:-1]
 	elif affineMatrix.ndim == 3:
 		s 		=[]
-		R 		=[]
+		T 		=[]
 		theta 	=[]
 		for afi in affineMatrix:
-			_s,_R,T = get_sRT_fromAffine(afi)
+			_s,_R,_T = get_sRT_fromAffine(afi)
 			_theta = np.arctan2(*_R[::-1,0])
 			s.append(_s)
-			R.append(_R)
+			T.append(_T)
 			theta.append(_theta)
 		s 		= np.array(s)
-		R 		= np.array(R)
+		T 		= np.array(T)
 		theta 	= np.array(theta)
+		return s, theta, T[:,:-1]
+
 	else:
 		raise IOError('la entrada debe ser una matriz de 3x3, o una lista de matrices,o un array de Nx3x3')
-	return s, theta, T[:-1]
+
 
 
 

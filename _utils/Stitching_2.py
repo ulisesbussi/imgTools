@@ -52,7 +52,9 @@ import cv2
 import numpy as np
 from .kalmanFilter import KalmanFilter
 from ._PID import PID
-from ._imgTools import get_s_theta_T_fromAffine, get_Affine_From_s_theta_T
+from ._imgTools import (get_s_theta_T_fromAffine,
+						get_Affine_From_s_theta_T,
+						LLtoMeters)
 
 
 class Stitching(object):
@@ -73,6 +75,7 @@ class Stitching(object):
 		#super(Stitching,self).__init__()
 
 		self.downsample = True # i worked with the imges at half size for simplicity
+
 		# params for ShiTomasi corner detection
 		self.qLvl = 0.7 # cond inicial de umbral de calidad
 		self.nCorRef 	= 100 # desired number of corners
@@ -80,16 +83,21 @@ class Stitching(object):
 		self.corDetected 	= list()
 		self.qLvlList 		= list()
 
-		self.ndth =0
-		self.T = np.array([0,0])
+		self.feature_params = dict( 	maxCorners = 1000,
+									qualityLevel = self.qLvl,
+									minDistance = 7, blockSize = 7 )
 
-		self.feature_params = dict( maxCorners = 1000, qualityLevel = self.qLvl,
-								minDistance = 7, blockSize = 7 )
-		
 		# Parameters for lucas kanade optical flow
-		self.lk_params = dict( winSize  = (15,15),maxLevel = 6,
+		self.lk_params = dict( 	winSize  = (15,15),maxLevel = 6,
 								criteria = (cv2.TERM_CRITERIA_EPS |\
-										cv2.TERM_CRITERIA_COUNT, 10, 0.03))
+								cv2.TERM_CRITERIA_COUNT, 10, 0.03))
+
+
+
+		self.new_dth   = 0
+		self.new_trasl = np.array([0,0])
+
+
 
 		self.vid = vid
 
@@ -105,7 +113,7 @@ class Stitching(object):
 
 		self.fixaffine = fixaffine
 		if fixaffine:
-			Warning('Not Working Yet! still experimental')
+			Warning('Still experimental')
 		self._ParseKwargs(kwargs)
 
 	def _ParseKwargs(self,kwargs):
@@ -123,10 +131,15 @@ class Stitching(object):
 			# === MAP ESQUINAS TO STITCH TO PAD IF NECESSARY
 		esqAff = affi.dot(esquinas)
 		# saco el bbx donde caeria warped
-		bbx = np.int64([np.floor(min(esqAff[0])), np.floor(min(esqAff[1])),
-						np.ceil(max(esqAff[0])), np.ceil(max(esqAff[1]))])
+# 		bbx = np.int64([np.floor(min(esqAff[0])), np.floor(min(esqAff[1])),
+# 						np.ceil(max(esqAff[0])), np.ceil(max(esqAff[1]))])
+
+		bbx = np.int64([np.floor(esqAff.min(1)),
+						np.ceil( esqAff.max(1))]).reshape(-1)
+
 		# rellenar con negro para que haya lugar
 		hS, wS = sTiT.shape[:2] # tamaño actual
+
 		# chequeo los cuatro lados para ver si hay que agregar filas, columnas
 		# actualizo el cero en la tranf affine si corresponde
 		if bbx[0] < 0: # rellenar con columnas hacia izquierda
@@ -181,13 +194,12 @@ class Stitching(object):
 		self.qLvlList.append(self.qLvl)
 		self.pid_qLvl() #pid
 		retval, inliers = cv2.estimateAffinePartial2D(good_new, good_old)
-
 		return retval
 
 
 	def _getIndexInLogDf(self,frNum):
-		#frNum = start + frCount
 		if self.sub_df is not None and self.log_df is not None:
+
 			dateTimeInSub = self.sub_df.query('frameNumber=='+\
 									 str(eval('frNum')))['dateTime']
 			indexInLog = np.abs(self.log_df['CUSTOM.updateTime']-\
@@ -215,7 +227,8 @@ class Stitching(object):
 		h, w = frame.shape[:2]
 
 		old_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-		p0 = cv2.goodFeaturesToTrack(old_gray, mask = None, **self.feature_params)
+		p0 = cv2.goodFeaturesToTrack(old_gray, mask = None,
+								   **self.feature_params)
 
 		sTiT = frame.copy()  # donde ir haciendo el stitch
 		affi = np.eye(3)[:2] # donde ir acumulando las trans afin
@@ -232,8 +245,7 @@ class Stitching(object):
 			cv2.imshow('frame', frame)
 
 			frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-			retval =self._getAffine(old_gray,frame_gray,p0)
+			retval = self._getAffine(old_gray,frame_gray,p0)
 			if retval is None:
 				print('No se encontró la transformación.. saliendo')
 				break
@@ -241,7 +253,6 @@ class Stitching(object):
 
 			if self.fixaffine:
 				self.frCount=frCount
-				#self._getIndexInLogDf(self.start+frCount)
 				retval = self._FixAffine(retval)
 
 			# ==== ACCUMULATE AFFINE: GET MAP FROM NEW FRAME TO STITCH
@@ -249,7 +260,7 @@ class Stitching(object):
 			affi[:,:2] = affi[:,:2].dot(retval[:,:2])
 			affi,sTiT = self._bboxing(affi,esquinas,sTiT)
 
-			self.afCor.append(affi) #affine Corregida?
+			self.afCor.append(affi) #affine Corregida
 
 			# === WARP FRAME TO THE STICHED IMAGE
 			hS, wS = sTiT.shape[:2]
@@ -264,7 +275,8 @@ class Stitching(object):
 
 			# === LEAVE VARIABLE READY FOR NEXT LOOP
 			old_gray = frame_gray.copy()
-			p0 = cv2.goodFeaturesToTrack(old_gray, mask = None, **self.feature_params)
+			p0 = cv2.goodFeaturesToTrack(old_gray, mask = None,
+											**self.feature_params)
 			
 			c = cv2.waitKey(1)
 			print('{:d} de {:d} frames procesados'.format(frCount,frDelta) )
@@ -279,36 +291,70 @@ class Stitching(object):
 
 
 	def _initKf(self):
-		#if self.sub_df is not None and self.log_df is not None:
-		#idx = self.indexInLog
 		if self.fixaffine:
-			th0 = self.yaw[0]
-			self._kf = KalmanFilter(th0,0.04,.04,.01)
-			self.nTheta = th0
+			x0 		= (0,0,0)
+			grado = np.pi/180
+			Cx 		= np.array([[.005,0,0],[0,.005,0],[0,0,.5*grado]])
+			Cu 		= np.array([[.01 ,0,0],[0, .01,0],[0,0, 1*grado]])
+			Cmed 	= np.array([[  5 ,0,0],[0,  5 ,0],[0,0, 3*grado]])
+			self._kf = KalmanFilter(x0,Cx=Cx,
+									   Cu=Cu,Cmed=Cmed)
+			self.nTheta = self.yaw[0]
 			self.tester = []
+			c0 = np.cos(self.yaw[0])
+			s0 = np.sin(self.yaw[0])
+			self._rotWorldToImg =np.array([ [ c0,  -s0, 0 ],
+											[ -s0, -c0, 0 ],
+											[ 0 ,   0 , 1 ]])
 		else:
 			self._kf = None
 
 
 	def _FixAffine(self,affine):
-		#TODO Not WorkingYet
-
+		"""This is suposed To be a Kalman Filter aplied in the model"""
+		#TODO A Lot
+		###KALMANFILTER
 		af = np.concatenate([affine,
-							np.array([0,0,1]).reshape(1,3)],axis=0)
-
-		thMed = self.yaw[self.frCount]
+							np.array([[0,0,1]])],
+							axis=0)
+		fn = self.frCount
 		s,d_theta,T = get_s_theta_T_fromAffine(af)
 
-		self._kf.runOneIt(d_theta,thMed)
+		_pix2Meters = 1/60  #6/2000 #el 1/60 es a manopla
+		t = T*_pix2Meters
 
-		dth = self._kf.xPost[-1] -self._kf.xPost[-2]
-		self.tester.append([d_theta,self.ndth,dth])
-		self.ndth = d_theta/2 +self.ndth/4 + dth/4
-		q = np.array(self.tester)[:,1].mean()
-		#self.ndth  = (self.ndth  + q)/2
-		self.T = T
-		newAff = get_Affine_From_s_theta_T(s,self.ndth,self.T)
+		inpt  	 = [*(t[::-1]),d_theta]
 
+		thMed  =   self.yaw[self.frCount]
+		dmed   = LLtoMeters(self.lat[0] , self.lon[0],
+						 self.lat[fn], self.lon[fn])
+
+		medition = [*dmed,thMed]
+		medition = np.dot(self._rotWorldToImg,medition)
+		self._kf.runOneIt(inpt,medition)
+
+		###ADITIONALFILTER
+		deltaAux 	= 	self._kf.xPost[-1] -\
+						self._kf.xPost[-2]
+
+		d_est_traslation 	= 	deltaAux[:-1]
+		d_est_theta 			= 	deltaAux[-1]
+
+
+		self.new_dth = d_theta
+		#self.new_dth = d_theta*.75 ++self.new_dth/4
+		#self.new_dth   = d_theta/2 +self.new_dth/4 + d_est_theta/4
+		if self.frCount==0:
+			self.new_dth=thMed
+
+		self.new_trasl = T
+		#self.new_trasl =  T/2 + self.new_trasl/4 +\
+		#				 (1/4)*(d_est_traslation/_pix2Meters)
+
+
+		newAff = get_Affine_From_s_theta_T(s,self.new_dth,self.new_trasl)
+		if self.frCount==0:
+			self.new_dth=0
 		return newAff
 
 
