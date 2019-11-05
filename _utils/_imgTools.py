@@ -28,7 +28,20 @@ def LLtoMeters(oldla,oldlo,la,lo):
 	return dx,dy
 
 
-
+def mapTompipi(nums):
+	if hasattr(nums,'__len__'):
+		for i,num in enumerate(nums):
+			if num<-np.pi:
+				num = num - 2*np.pi*np.ceil(num/(np.pi))
+			elif num>np.pi:
+				num = num - 2*np.pi*np.floor(num/(np.pi))
+			nums[i] = num
+	else:
+		if nums<-np.pi:
+			nums = nums - 2*np.pi*np.ceil(nums/(np.pi))
+		elif nums>np.pi:
+			nums = nums - 2*np.pi*np.floor(nums/(np.pi))
+	return nums
 
 
 
@@ -67,7 +80,7 @@ def get_s_theta_T_fromAffine(affineMatrix):
 
 
 def get_Affine_From_s_theta_T(s,theta,T):
-	theta = theta.item()
+	#theta = theta.item()
 	T = T.reshape(2,1)
 	R = np.array([[np.cos(theta),-np.sin(theta)],
 				  [np.sin(theta), np.cos(theta)] ])

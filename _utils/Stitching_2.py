@@ -50,7 +50,7 @@ STITCHING From seba Code
 
 import cv2
 import numpy as np
-from .kalmanFilter import KalmanFilter
+from .kalmanFilter import KalmanFilter,ParticleFilter
 from ._PID import PID
 from ._imgTools import (get_s_theta_T_fromAffine,
 						get_Affine_From_s_theta_T,
@@ -97,7 +97,7 @@ class Stitching(object):
 		self.new_dth   = 0
 		self.new_trasl = np.array([0,0])
 
-
+		self.tester= []
 
 		self.vid = vid
 
@@ -119,12 +119,16 @@ class Stitching(object):
 	def _ParseKwargs(self,kwargs):
 		self.__dict__.update(kwargs)
 
-	def _getFrame(self):
+	def _getFrame(self,undistort):
 		ret, frame = self.vid.read()
 		if not ret:
 			return None
+		if frame is None:
+			raise ValueError
 		if self.downsample:
 			frame = cv2.pyrDown(frame)
+		if undistort:
+			frame = self._undistort(frame)
 		return frame
 
 	def _bboxing(self,affi,esquinas,sTiT):
@@ -215,11 +219,8 @@ class Stitching(object):
 
 		self._initKf()
 
-		frame = self._getFrame()
-		if frame is None:
-			raise ValueError
-		if undistort:
-			frame = self._undistort(frame)
+		frame = self._getFrame(undistort)
+
 
 		frCount = 0
 		frDelta = self.end-self.start
@@ -239,9 +240,9 @@ class Stitching(object):
 							 [h, w, 1] , [h, 0, 1] ]).T[[1,0,2]]
 
 		while frCount <= frDelta :
-			frame = self._getFrame()
-			if frame is None:
-				break
+			frame = self._getFrame(undistort)
+
+
 			cv2.imshow('frame', frame)
 
 			frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
@@ -253,7 +254,7 @@ class Stitching(object):
 
 			if self.fixaffine:
 				self.frCount=frCount
-				retval = self._FixAffine(retval)
+				retval = self._fixAffine(retval)
 
 			# ==== ACCUMULATE AFFINE: GET MAP FROM NEW FRAME TO STITCH
 			affi[:,2] += affi[:,:2].dot(retval[:,2])
@@ -264,9 +265,11 @@ class Stitching(object):
 
 			# === WARP FRAME TO THE STICHED IMAGE
 			hS, wS = sTiT.shape[:2]
-			sTiT = cv2.warpAffine(frame, affi, (wS, hS), dst=sTiT,
+			sTiT = cv2.warpAffine(frame, affi, (wS, hS), sTiT,
 								  flags 			= cv2.INTER_LINEAR,
 								  borderMode 	= cv2.BORDER_TRANSPARENT)
+
+
 
 			esqAff = affi.dot(esquinas)
 			rectangulo = [np.int32(esqAff.T)]
@@ -277,12 +280,14 @@ class Stitching(object):
 			old_gray = frame_gray.copy()
 			p0 = cv2.goodFeaturesToTrack(old_gray, mask = None,
 											**self.feature_params)
-			
+
 			c = cv2.waitKey(1)
 			print('{:d} de {:d} frames procesados'.format(frCount,frDelta) )
 			if  c == ord('q'): #Salir
 				break
+
 			frCount += 1
+
 		cv2.namedWindow('stitched')
 		cv2.destroyWindow('stitched')
 		cv2.namedWindow('frame')
@@ -297,31 +302,40 @@ class Stitching(object):
 			Cx 		= np.array([[.005,0,0],[0,.005,0],[0,0,.5*grado]])
 			Cu 		= np.array([[.01 ,0,0],[0, .01,0],[0,0, 1*grado]])
 			Cmed 	= np.array([[  5 ,0,0],[0,  5 ,0],[0,0, 3*grado]])
-			self._kf = KalmanFilter(x0,Cx=Cx,
+			self._kf = ParticleFilter(x0,Cx=Cx,
 									   Cu=Cu,Cmed=Cmed)
 			self.nTheta = self.yaw[0]
 			self.tester = []
 			c0 = np.cos(self.yaw[0])
 			s0 = np.sin(self.yaw[0])
-			self._rotWorldToImg =np.array([ [ c0,  -s0, 0 ],
-											[ -s0, -c0, 0 ],
+			self._rotWorldToImg =np.array([ [ s0,  -c0, 0 ],
+											[ -c0, -s0, 0 ],
 											[ 0 ,   0 , 1 ]])
 		else:
 			self._kf = None
 
 
-	def _FixAffine(self,affine):
+	def _fixAffine(self,affine):
 		"""This is suposed To be a Kalman Filter aplied in the model"""
 		#TODO A Lot
 		###KALMANFILTER
+
 		af = np.concatenate([affine,
 							np.array([[0,0,1]])],
 							axis=0)
 		fn = self.frCount
-		s,d_theta,T = get_s_theta_T_fromAffine(af)
+		H_neg1 = np.linalg.inv(af)
+		s,d_theta,T = get_s_theta_T_fromAffine(H_neg1)
 
-		_pix2Meters = 1/60  #6/2000 #el 1/60 es a manopla
-		t = T*_pix2Meters
+
+		center = np.array([1344/2,756/2,1])
+		new_center = H_neg1.dot(center)
+		corrCenter = new_center[:-1]-center[:-1]
+		#se la resto para que coincida con gps
+
+
+		_pix2Meters = 1/90  #6/2000 #el 1/60 es a manopla
+		t = (corrCenter)*_pix2Meters
 
 		inpt  	 = [*(t[::-1]),d_theta]
 
@@ -334,25 +348,30 @@ class Stitching(object):
 		self._kf.runOneIt(inpt,medition)
 
 		###ADITIONALFILTER
-		deltaAux 	= 	self._kf.xPost[-1] -\
-						self._kf.xPost[-2]
+		self._kf.xPost[-1][:-1] = self._kf.xPost[-1][:-1] -T[:,np.newaxis]*_pix2Meters
+		d_est_traslation 	= 	(self._kf.xPost[-1][:-1].mean(-1)-\
+								 self._kf.xPost[-2][:-1].mean(-1))/_pix2Meters
+		#d_est_traslation =  d_est_traslation -  corrCenter + T
+		self.tester.append([d_est_traslation,corrCenter])
+		#deltaAux[:-1]/_pix2Meters -
 
-		d_est_traslation 	= 	deltaAux[:-1]
-		d_est_theta 			= 	deltaAux[-1]
+		d_est_theta 			= 	(self._kf.xPost[-1] -\
+						self._kf.xPost[-2])[-1].mean()
 
 
-		self.new_dth = d_theta
 		#self.new_dth = d_theta*.75 ++self.new_dth/4
 		#self.new_dth   = d_theta/2 +self.new_dth/4 + d_est_theta/4
+		self.new_dth = d_theta
 		if self.frCount==0:
 			self.new_dth=thMed
 
-		self.new_trasl = T
-		#self.new_trasl =  T/2 + self.new_trasl/4 +\
-		#				 (1/4)*(d_est_traslation/_pix2Meters)
+		#self.new_trasl = T# +corrCenter #se la sumo para volver a la transformación
+		self.new_trasl =  T/2 + self.new_trasl/2 #4 +\
+						 #(1/4)*(d_est_traslation)
 
 
 		newAff = get_Affine_From_s_theta_T(s,self.new_dth,self.new_trasl)
+		newAff = np.linalg.inv(np.vstack([newAff,[0,0,1]]))[:-1,:]
 		if self.frCount==0:
 			self.new_dth=0
 		return newAff
@@ -363,7 +382,7 @@ class Stitching(object):
 		eNcorNew = self.nCorRef - self.corDetected[-1]
 		self.pid.updatePID(eNcorNew)
 		self.qLvl = self.pid.getCor()
-		if self.qLvl < 0 or 1 < self.qLvl:
+		if  self.qLvl < 0 or 1 < self.qLvl:
 			self.qLvl = np.random.random()*0.5 + 0.1
 
 		self.feature_params["qualityLevel"] = np.float32(self.qLvl)
