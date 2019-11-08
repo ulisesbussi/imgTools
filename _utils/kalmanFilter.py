@@ -10,7 +10,7 @@ Created on Wed Sep 11 18:20:19 2019
 import numpy as np
 
 from ._imgTools import mapTompipi
-from .ModelsSinTH_models import ModeloCoordenadas, Gps_aXYZ
+from .ModelsenWorld import ModeloCoordenadas, Gps_aXYZ
 
 
 
@@ -33,6 +33,7 @@ class ParticleFilter(object):
 		self.model = model if model is not None else ModeloCoordenadas(x0,cpars)
 		self.L = [np.linalg.inv(Cmed)]
 		self.z = []
+		self.w_c_T = [] #guardo la transformacion de la cam al mundo
 
 	def _prior(self):
 		cvars = ['xPost','Cx','Cu','u']
@@ -97,8 +98,9 @@ class ParticleFilter(object):
 		if z is not None:
 			oldz,newz = z
 			med = self.medModel(self.xPost[-1].mean(-1),oldz,newz)
+			wcT = self.medModel.get_w_c_T(self.xPost[-1].mean(-1),oldz,newz)
 			self.med.append(med)
-
+			self.w_c_T.append(wcT)
 	def runOneIt(self,u,z=None):
 		self.set_U_Med(u,z)
 		self._prior()

@@ -30,7 +30,9 @@ def CiveCalc(img):
 def NdiCalc(img):
 	#Normalized Difference Index[1]
 	ch_r,ch_g,ch_b = img.T
-	ndi = (1.0*ch_g - ch_r )/(1.0*ch_g + ch_r )
+	den = (1.0*ch_g + ch_r )
+	den[den==0]=100
+	ndi = (1.0*ch_g - ch_r )/den
 	return ndi.T
 
 

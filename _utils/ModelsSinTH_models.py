@@ -179,6 +179,25 @@ class Gps_aXYZ(Modelo):
 		Xnew = np.array([xn,yn,zn,thn])
 		return Xnew
 
+	def get_w_c_T(self,X=None,oldMed=None,med=None):
+		if X is None:
+			Warning('estas usando el x interno del modelo')
+			X=self.x
+		x,y =self.latlonTodeltas(med)
+		ox,oy =self.latlonTodeltas(oldMed)
+		(dx,dy) = (x-ox,y-oy)
+		dz, dth = (med-oldMed)[2:]
+		z = med[2]
+		th =med[-1]
+		(cd,sd),(c,s) =map(lambda r: (cos(r),sin(r)), (dth,th))
+#		(c,s) = (cos(th),sin(th))
+
+
+		T = np.array([  [cd, -sd, 0, dx],
+						[sd,  cd, 0, dy],
+						[0,  0, 1, dz],
+						[0,  0, 0, 1]] )
+		return T #ojo por ahora ignoro la transformacion del drone a la camara
 
 
 
