@@ -123,9 +123,7 @@ def createDataFramesubt(subt):
 
 
 def cumdot(a):
-	ou = np.eye(len(a[0]))
-	aux = []
+	aux = [np.eye(len(a[0]))]
 	for el in a:
-		ou = ou.dot(el)
-		aux.append(ou)
+		aux.append(aux[-1].dot(el))
 	return np.array(aux)

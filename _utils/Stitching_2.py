@@ -125,10 +125,10 @@ class Stitching(object):
 			return None
 		if frame is None:
 			raise ValueError
-		if self.downsample:
-			frame = cv2.pyrDown(frame)
 		if undistort:
 			frame = self._undistort(frame)
+		if self.downsample:#TODO aca el primero undistort después pyrdown
+			frame = cv2.pyrDown(frame)
 		return frame
 
 	def _bboxing(self,affi,esquinas,sTiT):

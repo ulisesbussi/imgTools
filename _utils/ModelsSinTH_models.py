@@ -145,7 +145,7 @@ class Gps_aXYZ(Modelo):
 
 		ref = self.ll0 if ref is None else ref
 		delta = med[0:2]-ref[0:2]
-		deltaLat,deltaLon = delta#esto lo cambieee
+		deltaLon,deltaLat = delta#esto lo cambieee
 		mlat = (med[0:2]+ref[0:2])[1]/2
 	
 		mlaR = np.deg2rad(mlat)
@@ -157,6 +157,33 @@ class Gps_aXYZ(Modelo):
 		dx =  k2 *deltaLon  *1000 #from km to m
 		dy =  k1 *deltaLat  *1000
 		return dx,dy
+
+
+
+	def deltasTolatlon(self,delta=None,ref=None):
+		"""Ellipsoidal Earth projected to a plane
+		The FCC prescribes the following formulae for distances 
+		not exceeding 475 kilometres (295 mi):[2]"""
+		ref = self.ll0 if ref is None else ref
+
+		dkm = delta/1000 #tokm
+		mlat = ref[0:2][1]
+		mlaR = np.deg2rad(mlat)
+
+
+		k1 = 	111.13209- 0.56605*np.cos(2*mlaR)+\
+						 0.00012*np.cos(4*mlaR)
+		k2 = 	111.41513*np.cos(mlaR)-\
+					0.09455*np.cos(3*mlaR)+\
+					0.00012*np.cos(5*mlaR)
+		
+
+		deltaLon = dkm[0]*k2
+		deltaLat = dkm[1]*k1
+		lon = deltaLon+ref[0]
+		lat = deltaLat+ref[1]
+
+		return lon,lat
 
 
 	def get_xyz(self,X=None,oldMed=None,med=None):

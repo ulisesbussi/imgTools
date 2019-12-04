@@ -50,7 +50,7 @@ STITCHING From seba Code
 
 import cv2
 import numpy as np
-from .kalmanFilter import KalmanFilter
+#from .kalmanFilter import KalmanFilter
 from ._PID import PID
 from ._imgTools import get_s_theta_T_fromAffine, get_Affine_From_s_theta_T
 
