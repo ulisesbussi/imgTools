@@ -72,7 +72,7 @@ class Stitching(object):
 					sub=None, log=None, fixaffine=False, **kwargs):
 		#super(Stitching,self).__init__()
 
-		self.downsample = True # i worked with the imges at half size for simplicity
+		self.downsample = False # i worked with the imges at half size for simplicity
 		# params for ShiTomasi corner detection
 		self.qLvl = 0.7 # cond inicial de umbral de calidad
 		self.nCorRef 	= 100 # desired number of corners
@@ -111,11 +111,15 @@ class Stitching(object):
 	def _ParseKwargs(self,kwargs):
 		self.__dict__.update(kwargs)
 
-	def _getFrame(self):
+	def _getFrame(self,undistort):
 		ret, frame = self.vid.read()
 		if not ret:
 			return None
-		if self.downsample:
+		if frame is None:
+			raise ValueError
+		if undistort:
+			frame = self._undistort(frame)
+		if self.downsample:#TODO aca el primero undistort después pyrdown
 			frame = cv2.pyrDown(frame)
 		return frame
 
@@ -159,6 +163,12 @@ class Stitching(object):
 
 
 	def _undistort(self,frame):
+		"""no deberia usarse más esta funcion, debería desdistorsionar 
+		cuando lee el frame si no se achica primero el frame 
+		y después se desdistorsiona, eso es un error"""
+
+		Warning('Deprecated!')
+
 		if self.cam_pars is None:
 			Warning('No hay parametros de camara definidos!')
 			return frame
@@ -203,11 +213,12 @@ class Stitching(object):
 
 		self._initKf()
 
-		frame = self._getFrame()
-		if frame is None:
-			raise ValueError
-		if undistort:
-			frame = self._undistort(frame)
+		frame = self._getFrame(undistort)
+# 		frame = self._getFrame()
+# 		if frame is None:
+# 			raise ValueError
+# 		if undistort:
+# 			frame = self._undistort(frame)
 
 		frCount = 0
 		frDelta = self.end-self.start

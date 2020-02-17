@@ -64,7 +64,7 @@ class ModeloCoordenadas(Modelo):
 			self.pars= pars
 			self.createCameraMat(pars)
 
-		self.cdT = np.array([[1, 0, 0,  8],  #trama que transforma desde el dron a camera
+		self.cdT = np.array([[1, 0, 0,  0],  #trama que transforma desde el dron a camera
 							 [0,-1, 0,  .3],
 							 [0, 0, -1,   0],
 							 [0, 0, 0,   1]  ])
@@ -96,14 +96,20 @@ class ModeloCoordenadas(Modelo):
 		return self.zeta(1/z)
 
 	def applyModel(self,X,u):
+		"""Acá se aplica el modelo del sistema X es [x,y,z,th] 
+		del drone! 	con ese se arma la matriz Ti que va de es T_i la que va de 
+		la trama mundo al drone (invirtiendo la que va del drone al mundo).
+		phi es el jacobiano del sistema respecto a X. en resumen, todo lo que acompaña a la matriz
+		^d_w T_i en la ec 4.
 
+		"""
 		Ti 	= np.linalg.inv ( self._ensambleT(X))
 		phi = self.getFx(X,u)
 		if Ti.ndim>2:
-			Ti1 = np.array([np.linalg.inv (  np.dot(p,t)) for t,p in zip(Ti,phi)])
+			Ti1 = np.array([np.linalg.inv (  np.dot(p,t)) for p,t in zip(phi,Ti)])
 		else:
 			Ti1 = np.linalg.inv (  np.dot(phi,Ti))
-		newX = self._unsambleT(Ti1)
+		newX = self._unsambleT(Ti1)#desarmo la matrix para tener el nuevo x,y,z,th
 
 		return newX
 
@@ -111,7 +117,11 @@ class ModeloCoordenadas(Modelo):
 	def getFx(self,X=None,u=None):
 		"""Este no es fielmente el jacobiano, ya que zeta depende de los estados
 		es una aproximación considerarlo constante para evitar mas quilombo
-		Ojo que es lo que uso para propagar modelo tambien, si lo corrijo hay que coregir eso"""
+		Ojo que es lo que uso para propagar modelo tambien, 
+		si lo corrijo hay que coregir eso.
+		en definitiva esto es  cdT^-1 *zeta^-1 *C^-1 * H  * C*zeta*cdT
+		
+		"""
 		T = self._ensambleT(X)
 
 		h = self._ensambleH(u)
@@ -146,7 +156,6 @@ class ModeloCoordenadas(Modelo):
 			T=np.array([self._ensambleT(x) for x in X])
 		else:
 			x,y,z,ct,st = X
-			#ct,st = (np.cos(th),np.sin(th))
 			T = np.array([	[ct, -st, 0, x],
 							[st,  ct, 0, y],
 							[0 ,  0 , 1, z],
@@ -197,6 +206,66 @@ class ModeloCoordenadas(Modelo):
 
 	def getMx(self,X=None,u=None):
 		return np.eye(3)
+
+
+
+
+
+
+
+
+
+
+
+
+
+class Gps_aXYZ(Modelo):
+	"""Mapping meassurement med =[lon,lat,z,th] to [x,y,z] coordinates"""
+	def __init__(self,x=[0,0,0,0],ll0=[-34,-58]):
+		super(Gps_aXYZ,self).__init__(x)
+		self.ll0 = ll0
+	def __call__(self,X=None,med=None):
+		return self.get_med_meters(X,med)
+
+	def latlonTodeltas(self,med=None,ref=None):
+		"""Ellipsoidal Earth projected to a plane
+		The FCC prescribes the following formulae for distances 
+		not exceeding 475 kilometres (295 mi):[2]"""
+
+		ref = self.ll0 if ref is None else ref
+		delta = med[0:2]-ref[0:2]
+		deltaLon,deltaLat = delta#esto lo cambieee
+		mlat = (med[0:2]+ref[0:2])[1]/2
+	
+		mlaR = np.deg2rad(mlat)
+		k1 = 	111.13209- 0.56605*np.cos(2*mlaR)+\
+						 0.00012*np.cos(4*mlaR)
+		k2 = 	111.41513*np.cos(mlaR)-\
+					0.09455*np.cos(3*mlaR)+\
+					0.00012*np.cos(5*mlaR)
+		dx =  k2 *deltaLon  *1000 #from km to m
+		dy =  k1 *deltaLat  *1000
+		return dx,dy
+
+
+	def get_med_meters(self,X=None,med=None,ref=None):
+		if X is None:
+			Warning('estas usando el x interno del modelo')
+			X=self.x
+		x, y  = self.latlonTodeltas(med,ref=ref)
+		z, th = med[2:]
+
+		med= np.array([x,y,z,th])
+
+		return med
+
+
+#--------------------------------------------------------------------------------------
+#--------------------------------------------------------------------------------------
+"""DE ACA EN ADELANTE SON COSAS QUE YA NO SE USAN"""
+#--------------------------------------------------------------------------------------
+#--------------------------------------------------------------------------------------
+#--------------------------------------------------------------------------------------
 
 class ModeloCoordenadas_old(Modelo):
 	"""Modelo de la imagen para pasar de x_i a x_{i+1} tomando como entrada 
@@ -365,55 +434,3 @@ class ModeloCoordenadas_old(Modelo):
 
 	def getMx(self,X=None,u=None):
 		return np.eye(3)
-
-
-
-
-
-
-
-
-
-
-class Gps_aXYZ(Modelo):
-	"""Mapping meassurement med =[lon,lat,z,th] to [x,y,z] coordinates"""
-	def __init__(self,x=[0,0,0,0],ll0=[-34,-58]):
-		super(Gps_aXYZ,self).__init__(x)
-		self.ll0 = ll0
-	def __call__(self,X=None,med=None):
-		return self.get_med_meters(X,med)
-
-	def latlonTodeltas(self,med=None,ref=None):
-		"""Ellipsoidal Earth projected to a plane
-		The FCC prescribes the following formulae for distances 
-		not exceeding 475 kilometres (295 mi):[2]"""
-
-		ref = self.ll0 if ref is None else ref
-		delta = med[0:2]-ref[0:2]
-		deltaLon,deltaLat = delta#esto lo cambieee
-		mlat = (med[0:2]+ref[0:2])[1]/2
-	
-		mlaR = np.deg2rad(mlat)
-		k1 = 	111.13209- 0.56605*np.cos(2*mlaR)+\
-						 0.00012*np.cos(4*mlaR)
-		k2 = 	111.41513*np.cos(mlaR)-\
-					0.09455*np.cos(3*mlaR)+\
-					0.00012*np.cos(5*mlaR)
-		dx =  k2 *deltaLon  *1000 #from km to m
-		dy =  k1 *deltaLat  *1000
-		return dx,dy
-
-
-	def get_med_meters(self,X=None,med=None,ref=None):
-		if X is None:
-			Warning('estas usando el x interno del modelo')
-			X=self.x
-		x, y  = self.latlonTodeltas(med,ref=ref)
-		z, th = med[2:]
-
-		med= np.array([x,y,z,th])
-
-		return med
-
-
-
