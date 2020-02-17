@@ -237,9 +237,7 @@ class Stitching(object):
 							 [h, w, 1] , [h, 0, 1] ]).T[[1,0,2]]
 
 		while frCount <= frDelta :
-			frame = self._getFrame()
-			if frame is None:
-				break
+			frame = self._getFrame(undistort)
 			cv2.imshow('frame', frame)
 
 			frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
