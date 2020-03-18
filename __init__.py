@@ -18,3 +18,7 @@ from ._utils._imgTools     import *
 from ._utils._indices      import *
 from ._utils._models       import Gps_aXYZ
 from ._utils.ModelsenWorld import ModeloCoordenadas
+from ._utils.findLines     import findLines, crearImagenDeLineas
+
+
+from ._utils import findLines as findLinesMod

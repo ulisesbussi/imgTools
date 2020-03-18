@@ -46,7 +46,7 @@ def mapTompipi(nums):
 
 
 def get_sRT_fromAffine(affineMatrix):
-	T = affineMatrix[:,-1]
+	T = affineMatrix[:,2]
 	sRot =affineMatrix[:2,:2]
 	s = np.sqrt(np.linalg.det(sRot))
 	R = sRot/s
