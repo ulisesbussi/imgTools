@@ -55,7 +55,7 @@ from ._PID import PID
 from ._imgTools import get_s_theta_T_fromAffine, get_Affine_From_s_theta_T
 
 
-class Stitching(object):
+class StitchingDescriptors(object):
 	"""This object perform the stitching of consecutive Image in video
 	using feature matching  it takes at least 1 input argument: 
 		vid : a cv2 videoCapture Object. 
@@ -112,16 +112,25 @@ class Stitching(object):
 		if fixaffine:
 			Warning('Not Working Yet! still experimental')
 		self._ParseKwargs(kwargs)
-
-
+		
+		self.detector = cv2.xfeatures2d.SURF_create()
+		#self.detector = cv2.ORB_create()
+		
+		FLANN_INDEX_KDTREE = 1
+		index_params  = dict(algorithm = FLANN_INDEX_KDTREE, trees = 5)
+		search_params = dict(checks = 50)
+		self.matcher  = cv2.FlannBasedMatcher(index_params, search_params)
+		
 
 
 	def _ParseKwargs(self,kwargs):
 		self.__dict__.update(kwargs)
 
 
-	def _getFrame(self,undistort):
-		ret, frame = self.vid.read()
+	def _getFrame(self,undistort,step = 1):
+		for i in range(step):
+			ret, frame = self.vid.read()
+		
 		if not ret:
 			return None
 		if frame is None:
@@ -186,21 +195,29 @@ class Stitching(object):
 			return frame
 
 
-	def _getAffine(self,old_gray,frame_gray,p0):
+	def _getAffine(self,old_frame,frame):
 		# === calculate optical flow
-		p1, st, err = cv2.calcOpticalFlowPyrLK(old_gray, frame_gray, p0,
-										 None, **self.lk_params)
 		
-		# Select good points
-		good_old = p0[st==1].reshape((-1, 1, 2))
-		good_new = p1[st==1].reshape((-1, 1, 2))
-		nCor = len(p1)
-		self.corDetected.append(nCor)
-		self.qLvlList.append(self.qLvl)
-		self.pid_qLvl() #pid
-		retval, inliers = cv2.estimateAffinePartial2D(good_new, good_old)
+		kp1,des1 = self.detector.detectAndCompute(old_frame,None)
+		kp2,des2 = self.detector.detectAndCompute(frame,None)
 
-		return retval
+		matches = self.matcher.knnMatch(des1,des2,k=2)
+		good = []
+	
+		for m,n in matches:
+			if m.distance < 0.7*n.distance:
+				good.append(m)
+		
+		if len(good)>5:
+			src_pts = np.float32([ kp1[m.queryIdx].pt for m in good ]).reshape(-1,1,2)
+			dst_pts = np.float32([ kp2[m.trainIdx].pt for m in good ]).reshape(-1,1,2)
+			#affi, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC,5.0)
+			retval, inliers = cv2.estimateAffinePartial2D(dst_pts,src_pts)
+
+		else:
+			raise('Error pocos puntos')
+
+		return retval#affi
 
 
 	def _getIndexInLogDf(self,frNum):
@@ -216,6 +233,7 @@ class Stitching(object):
 
 
 	def stitching(self,undistort=False):
+		stp=30
 		self.vid.set(cv2.CAP_PROP_POS_FRAMES,self.start)
 		self._getIndexInLogDf(self.start)
 
@@ -232,13 +250,10 @@ class Stitching(object):
 		frDelta = self.end-self.start
 
 		h, w = frame.shape[:2]
+		old_frame = frame
+#		old_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+#		p0 = cv2.goodFeaturesToTrack(old_gray, mask = None, **self.feature_params)
 
-		old_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-		p0 = cv2.goodFeaturesToTrack(old_gray, mask = None, **self.feature_params)
-		while len(p0)<50:
-			self.feature_params['qualityLevel']*=0.9
-			p0 = cv2.goodFeaturesToTrack(old_gray, mask = None, **self.feature_params)
-		
 		sTiT = frame.copy()  # donde ir haciendo el stitch
 		affi = np.eye(3)[:2] # donde ir acumulando las trans afin
 
@@ -248,24 +263,23 @@ class Stitching(object):
 							 [h, w, 1] , [h, 0, 1] ]).T[[1,0,2]]
 
 		while frCount <= frDelta :
-			frame = self._getFrame(undistort)
+			frame = self._getFrame(undistort,stp)
 
 #			cv2.imshow('frame', frame)
 
-			frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+			#frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-			retval =self._getAffine(old_gray,frame_gray,p0)
+			retval =self._getAffine(old_frame,frame)
 			if retval is None:
 				print('No se encontró la transformación.. saliendo')
 				break
-			
+			self.affines.append(retval)
 
 			if self.fixaffine:
 				self.frCount=frCount
 				#self._getIndexInLogDf(self.start+frCount)
 				retval = self._FixAffine(retval)
-			
-			self.affines.append(retval)
+
 			# ==== ACCUMULATE AFFINE: GET MAP FROM NEW FRAME TO STITCH
 			affi[:,2] += affi[:,:2].dot(retval[:,2])
 			affi[:,:2] = affi[:,:2].dot(retval[:,:2])
@@ -285,14 +299,14 @@ class Stitching(object):
 			cv2.imshow('stitched', cv2.pyrDown(cv2.pyrDown(sTiTshow)))
 
 			# === LEAVE VARIABLE READY FOR NEXT LOOP
-			old_gray = frame_gray.copy()
-			p0 = cv2.goodFeaturesToTrack(old_gray, mask = None, **self.feature_params)
+			old_frame = frame.copy()
+			#p0 = cv2.goodFeaturesToTrack(old_gray, mask = None, **self.feature_params)
 			
 			c = cv2.waitKey(1)
-			print('\r{:d} de {:d} frames procesados'.format(frCount,frDelta) ,end ='')
+			print('{:d} de {:d} frames procesados'.format(frCount,frDelta) )
 			if  c == ord('q'): #Salir
 				break
-			frCount += 1
+			frCount += stp
 		cv2.namedWindow('stitched')
 		cv2.destroyWindow('stitched')
 		cv2.namedWindow('frame')
@@ -339,7 +353,7 @@ class Stitching(object):
 
 		eNcorNew = self.nCorRef - self.corDetected[-1]
 		self.pid.updatePID(eNcorNew)
-		self.qLvl = 0.9*self.pid.getCor()
+		self.qLvl = self.pid.getCor()
 		if self.qLvl < 0 or 1 < self.qLvl:
 			self.qLvl = np.random.random()*0.5 + 0.1
 

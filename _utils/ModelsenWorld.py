@@ -38,6 +38,26 @@ class Modelo(object):
 
 
 
+class ModeloTh(Modelo):
+	"""Modelo del ángulo de yaw"""
+	def __init__(self,th = 0):
+		self.oldth =0
+		self.th = th
+		
+	def applyModel(self,x=None,u=None):
+		self.oldth = self.th
+		self.th = self.th +u
+		return self.th 
+
+	def getFx(self,x=None,u=None):
+		return 1
+	def getFu(self,x=None,u=None):
+		return 1
+	def getMed(self,x=None,u=None):
+		return self.th
+	def getMx(self,x=None,u=None):
+		return 1
+
 
 
 class ModeloCoordenadas(Modelo):

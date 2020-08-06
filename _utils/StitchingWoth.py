@@ -55,7 +55,7 @@ from ._PID import PID
 from ._imgTools import get_s_theta_T_fromAffine, get_Affine_From_s_theta_T
 
 
-class Stitching(object):
+class StitchingWoth(object):
 	"""This object perform the stitching of consecutive Image in video
 	using feature matching  it takes at least 1 input argument: 
 		vid : a cv2 videoCapture Object. 
@@ -324,12 +324,12 @@ class Stitching(object):
 		s,d_theta,T = get_s_theta_T_fromAffine(af)
 
 		 
-		dth = 0.5*(d_theta +self.oth)
-		self.oth = d_theta
+# 		dth = 0.5*(d_theta +self.oth)
+# 		self.oth = d_theta
 		#self.theta = dth
-		s = (s+1)/2
+# 		s = (s+1)/2
 		#self.tester.append([dthMed,d_theta,dth])
-
+		dth=0
 		newAff = get_Affine_From_s_theta_T(s,dth,T)
 
 		return newAff

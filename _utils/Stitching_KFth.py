@@ -50,12 +50,12 @@ STITCHING From seba Code
 
 import cv2
 import numpy as np
-#from .kalmanFilter import KalmanFilter
+from .kalmanFilter import KF_theta
 from ._PID import PID
 from ._imgTools import get_s_theta_T_fromAffine, get_Affine_From_s_theta_T
 
 
-class Stitching(object):
+class Stitching_KFTh(object):
 	"""This object perform the stitching of consecutive Image in video
 	using feature matching  it takes at least 1 input argument: 
 		vid : a cv2 videoCapture Object. 
@@ -72,7 +72,7 @@ class Stitching(object):
 					sub=None, log=None, fixaffine=False, **kwargs):
 		#super(Stitching,self).__init__()
 
-		self.downsample = True # i worked with the imges at half size for simplicity
+		self.downsample = False# i worked with the imges at half size for simplicity
 		# params for ShiTomasi corner detection
 		self.qLvl = 0.7 # cond inicial de umbral de calidad
 		self.nCorRef 	= 100 # desired number of corners
@@ -107,14 +107,12 @@ class Stitching(object):
 		self.theta = 0
 		self.esquinasyShift = []
 
-
 		self.fixaffine = fixaffine
 		if fixaffine:
 			Warning('Not Working Yet! still experimental')
+		self._ShowFlag =True
 		self._ParseKwargs(kwargs)
-
-
-
+		self._initKf()
 
 	def _ParseKwargs(self,kwargs):
 		self.__dict__.update(kwargs)
@@ -282,7 +280,8 @@ class Stitching(object):
 			esqAff = affi.dot(esquinas)
 			rectangulo = [np.int32(esqAff.T)]
 			sTiTshow = cv2.polylines(sTiT.copy(), rectangulo, True, (0,0,255))
-			cv2.imshow('stitched', cv2.pyrDown(cv2.pyrDown(sTiTshow)))
+			if self._ShowFlag:
+				cv2.imshow('stitched', cv2.pyrDown(cv2.pyrDown(sTiTshow)))
 
 			# === LEAVE VARIABLE READY FOR NEXT LOOP
 			old_gray = frame_gray.copy()
@@ -301,7 +300,9 @@ class Stitching(object):
 
 
 	def _initKf(self):
-		Warning('ESTOY ENTRANDO EN _initKf, no debería')
+		self.kf = KF_theta(self.imu[0],Cmed=2e-2,Cu=1e-4,)
+		self.deltas =[]
+		Warning('ESTOY ENTRANDO EN _initKf, espero Funcione(?)')
 		pass
 # 		#if self.sub_df is not None and self.log_df is not None:
 # 		#idx = self.indexInLog
@@ -322,13 +323,13 @@ class Stitching(object):
 
 		#dthMed = self.dyaw[self.frCount]
 		s,d_theta,T = get_s_theta_T_fromAffine(af)
-
+		self.kf(d_theta,self.imu[self.frCount])
 		 
-		dth = 0.5*(d_theta +self.oth)
-		self.oth = d_theta
-		#self.theta = dth
+		dth_kf = self.kf.xPost[-1]-self.kf.xPost[-2]
+		
+		dth = dth_kf#0.5*(d_theta +dth_kf)
+		self.deltas.append ( [d_theta,dth_kf])
 		s = (s+1)/2
-		#self.tester.append([dthMed,d_theta,dth])
 
 		newAff = get_Affine_From_s_theta_T(s,dth,T)
 

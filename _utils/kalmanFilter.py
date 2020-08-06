@@ -10,7 +10,7 @@ Created on Wed Sep 11 18:20:19 2019
 import numpy as np
 
 #from ._imgTools import mapTompipi
-from .ModelsenWorld import ModeloCoordenadas, Gps_aXYZ
+from .ModelsenWorld import ModeloCoordenadas, Gps_aXYZ,ModeloTh
 
 
 
@@ -167,6 +167,44 @@ class ParticleFilter():
 
 
 
+class KF_theta(object):
+	def __init__(self,x0=0,F=1,Cx=1,Cu=1,H=1,Cmed=1):
+		sVar = {'xPrior':[x0] ,'xPost':[x0],
+				'Fx':F, 'H':H,
+				'CxPrior':[Cx],'CxPost':[Cx],
+				'u':[],'Cu':[Cu],'med':[],'Cmed':[Cmed],
+				'innov':[],'KalmanGain':[]}
+		[setattr(self,atr,val) for atr,val in sVar.items()]
+	
+	def Prior(self,u):
+		xp =self.xPost[-1] + u
+		cx = self.Fx * self.CxPost[-1]*self.Fx + self.Cu[-1]
+		
+		self.xPrior.append(xp) 
+		self.CxPrior.append(cx) 
+	
+	def Post(self,med=None):
+		if med is not None:
+			nu = med -self.xPrior[-1]
+			S = self.H * self.CxPrior[-1] * self.H + self.Cmed[-1]
+			K = self.CxPrior[-1]/S
+			xp = self.xPrior[-1] + K*nu
+			cx = (1-K)*self.CxPrior[-1]
+			self.innov.append(nu)
+			self.KalmanGain.append(K)
+			self.xPost.append(xp)
+			self.CxPost.append(cx)
+		else:
+			self.innov.append(self.xPrior[-1])
+			self.KalmanGain.append(self.KalmanGain[-1])
+			self.xPost.append(self.xPrior[-1])
+			self.CxPost.append(self.CxPrior[-1])
+	
+	def __call__(self,u,med=None):
+		self.Prior(u)
+		self.Post(med)
+
+
 
 
 
@@ -178,8 +216,8 @@ class ParticleFilter():
 
 
 class KalmanFilter():
-	def __init__():
-		raise NotImplementedError()
+	def __init__(self,model=None,x0=0):
+		raise NotImplementedError('Modelo no definido')
 
 
 

@@ -50,12 +50,9 @@ STITCHING From seba Code
 
 import cv2
 import numpy as np
-from .kalmanFilter import KalmanFilter,ParticleFilter
+#from .kalmanFilter import KalmanFilter
 from ._PID import PID
-from ._imgTools import (get_s_theta_T_fromAffine,
-						get_Affine_From_s_theta_T,
-						LLtoMeters)
-
+from ._imgTools import get_s_theta_T_fromAffine, get_Affine_From_s_theta_T
 
 
 class Stitching(object):
@@ -75,7 +72,7 @@ class Stitching(object):
 					sub=None, log=None, fixaffine=False, **kwargs):
 		#super(Stitching,self).__init__()
 
-		self.downsample = False # i worked with the imges at half size for simplicity
+		self.downsample = True # i worked with the imges at half size for simplicity
 		# params for ShiTomasi corner detection
 		self.qLvl = 0.7 # cond inicial de umbral de calidad
 		self.nCorRef 	= 100 # desired number of corners
@@ -83,8 +80,6 @@ class Stitching(object):
 		self.corDetected 	= list()
 		self.qLvlList 		= list()
 
-		self.theta = list()
-		self.imuth = list()
 		self.ndth =0
 		self.T = np.array([0,0])
 
@@ -107,14 +102,23 @@ class Stitching(object):
 		self.cam_pars = pars
 		self.sub_df = sub
 		self.log_df = log
+		self.tester =[]
+		self.oth = 0
+		self.theta = 0
+		self.esquinasyShift = []
+
 
 		self.fixaffine = fixaffine
 		if fixaffine:
 			Warning('Not Working Yet! still experimental')
 		self._ParseKwargs(kwargs)
 
+
+
+
 	def _ParseKwargs(self,kwargs):
 		self.__dict__.update(kwargs)
+
 
 	def _getFrame(self,undistort):
 		ret, frame = self.vid.read()
@@ -124,9 +128,10 @@ class Stitching(object):
 			raise ValueError
 		if undistort:
 			frame = self._undistort(frame)
-		if self.downsample:
+		if self.downsample:#TODO aca el primero undistort después pyrdown
 			frame = cv2.pyrDown(frame)
 		return frame
+
 
 	def _bboxing(self,affi,esquinas,sTiT):
 			# === MAP ESQUINAS TO STITCH TO PAD IF NECESSARY
@@ -138,19 +143,21 @@ class Stitching(object):
 		hS, wS = sTiT.shape[:2] # tamaño actual
 		# chequeo los cuatro lados para ver si hay que agregar filas, columnas
 		# actualizo el cero en la tranf affine si corresponde
+		delta1 = 0 #esto es si estoy corriendo el 0 en x
+		delta2 = 0 #esto es si estoy corriendo el 0 en y
 		if bbx[0] < 0: # rellenar con columnas hacia izquierda
-			delta = -bbx[0]
-			relleno = np.zeros((hS, delta, 3), dtype=np.uint8)
+			delta1 = -bbx[0]
+			relleno = np.zeros((hS, delta1, 3), dtype=np.uint8)
 			sTiT = np.concatenate([relleno, sTiT], axis=1)
 			hS, wS = sTiT.shape[:2] # tamaño actual
-			affi[0, 2] += delta # actualizo desplazamiento afin
+			affi[0, 2] += delta1 # actualizo desplazamiento afin
 		
 		if bbx[1] < 0: # rellenar con filas hacia arriba
-			delta = -bbx[1]
-			relleno = np.zeros((delta, wS, 3), dtype=np.uint8)
+			delta2 = -bbx[1]
+			relleno = np.zeros((delta2, wS, 3), dtype=np.uint8)
 			sTiT = np.concatenate([relleno, sTiT], axis=0)
 			hS, wS = sTiT.shape[:2] # tamaño actual
-			affi[1, 2] += delta # actualizo desplazamiento afin
+			affi[1, 2] += delta2 # actualizo desplazamiento afin
 	
 		if wS < bbx[2]: # rellenar con columnas hacia derecha
 			delta = bbx[2] - wS + 1
@@ -164,22 +171,19 @@ class Stitching(object):
 			sTiT = np.concatenate([sTiT, relleno], axis=0)
 			hS, wS = sTiT.shape[:2] # tamaño actual
 	
+		self.esquinasyShift.append([esqAff,[delta1,delta2]])
 		return affi,sTiT
 
 
 	def _undistort(self,frame):
-		"""no deberia usarse más esta funcion, debería desdistorsionar 
-		cuando lee el frame si no se achica primero el frame 
-		y después se desdistorsiona, eso es un error"""
-
-		Warning('Deprecated!')
 
 		if self.cam_pars is None:
 			Warning('No hay parametros de camara definidos!')
+			return frame
 		else:
 			frame = cv2.undistort(frame,self.cam_pars['cameraMatrix'],
 										self.cam_pars['distCoeffs'])
-		return frame
+			return frame
 
 
 	def _getAffine(self,old_gray,frame_gray,p0):
@@ -188,9 +192,8 @@ class Stitching(object):
 										 None, **self.lk_params)
 		
 		# Select good points
-		[good_old,good_new] = [p[st==1].reshape(-1,1,2) for p in [p0,p1]]
-#		good_old = p0[st==1].reshape((-1, 1, 2))
-#		good_new = p1[st==1].reshape((-1, 1, 2))
+		good_old = p0[st==1].reshape((-1, 1, 2))
+		good_new = p1[st==1].reshape((-1, 1, 2))
 		nCor = len(p1)
 		self.corDetected.append(nCor)
 		self.qLvlList.append(self.qLvl)
@@ -200,25 +203,30 @@ class Stitching(object):
 		return retval
 
 
-# 	def _getIndexInLogDf(self,frNum):
-# 		#frNum = start + frCount
-# 		if self.sub_df is not None and self.log_df is not None:
-# 			dateTimeInSub = self.sub_df.query('frameNumber=='+\
-# 									 str(eval('frNum')))['dateTime']
-# 			indexInLog = np.abs(self.log_df['CUSTOM.updateTime']-\
-# 					   dateTimeInSub.values[0]).idxmin()
-# 			self.indexInLog =  indexInLog
-# 		else:
-# 			self.indexInLog =  None
+	def _getIndexInLogDf(self,frNum):
+		#frNum = start + frCount
+		if self.sub_df is not None and self.log_df is not None:
+			dateTimeInSub = self.sub_df.query('frameNumber=='+\
+									 str(eval('frNum')))['dateTime']
+			indexInLog = np.abs(self.log_df['CUSTOM.updateTime']-\
+					   dateTimeInSub.values[0]).idxmin()
+			self.indexInLog =  indexInLog
+		else:
+			self.indexInLog =  None
 
 
 	def stitching(self,undistort=False):
 		self.vid.set(cv2.CAP_PROP_POS_FRAMES,self.start)
-# 		self._getIndexInLogDf(self.start)
+		self._getIndexInLogDf(self.start)
 
 		#self._initKf()
 
 		frame = self._getFrame(undistort)
+# 		frame = self._getFrame()
+# 		if frame is None:
+# 			raise ValueError
+# 		if undistort:
+# 			frame = self._undistort(frame)
 
 		frCount = 0
 		frDelta = self.end-self.start
@@ -227,7 +235,10 @@ class Stitching(object):
 
 		old_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 		p0 = cv2.goodFeaturesToTrack(old_gray, mask = None, **self.feature_params)
-
+		while len(p0)<50:
+			self.feature_params['qualityLevel']*=0.9
+			p0 = cv2.goodFeaturesToTrack(old_gray, mask = None, **self.feature_params)
+		
 		sTiT = frame.copy()  # donde ir haciendo el stitch
 		affi = np.eye(3)[:2] # donde ir acumulando las trans afin
 
@@ -236,116 +247,97 @@ class Stitching(object):
 		esquinas = np.array([[0, 0, 1] , [0, w, 1],
 							 [h, w, 1] , [h, 0, 1] ]).T[[1,0,2]]
 
-		while frCount <= frDelta:
+		while frCount <= frDelta :
 			frame = self._getFrame(undistort)
 
-			cv2.imshow('frame', frame)
+#			cv2.imshow('frame', frame)
 
 			frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-			retval =self._getAffine(old_gray, frame_gray, p0)
+			retval =self._getAffine(old_gray,frame_gray,p0)
 			if retval is None:
 				print('No se encontró la transformación.. saliendo')
 				break
-			self.affines.append(retval)
+			
 
 			if self.fixaffine:
 				self.frCount=frCount
-				retval = self._FixAffine2(retval)
-
+				#self._getIndexInLogDf(self.start+frCount)
+				retval = self._FixAffine(retval)
+			
+			self.affines.append(retval)
 			# ==== ACCUMULATE AFFINE: GET MAP FROM NEW FRAME TO STITCH
-			affi[:, 2] += affi[:, :2].dot(retval[:, 2])
-			affi[:, :2] = affi[:, :2].dot(retval[:, :2])
-			affi, sTiT = self._bboxing(affi, esquinas, sTiT)
+			affi[:,2] += affi[:,:2].dot(retval[:,2])
+			affi[:,:2] = affi[:,:2].dot(retval[:,:2])
+			affi,sTiT = self._bboxing(affi,esquinas,sTiT)
 
 			self.afCor.append(affi) #affine Corregida?
 
 			# === WARP FRAME TO THE STICHED IMAGE
 			hS, wS = sTiT.shape[:2]
 			sTiT = cv2.warpAffine(frame, affi, (wS, hS), dst=sTiT,
-									flags=cv2.INTER_LINEAR,
-									borderMode=cv2.BORDER_TRANSPARENT)
+								  flags 			= cv2.INTER_LINEAR,
+								  borderMode 	= cv2.BORDER_TRANSPARENT)
 
 			esqAff = affi.dot(esquinas)
 			rectangulo = [np.int32(esqAff.T)]
-			sTiTshow = cv2.polylines(sTiT.copy(), rectangulo, True, (0, 0, 255))
-			cv2.imshow('stitched', cv2.pyrDown(sTiTshow))
+			sTiTshow = cv2.polylines(sTiT.copy(), rectangulo, True, (0,0,255))
+			cv2.imshow('stitched', cv2.pyrDown(cv2.pyrDown(sTiTshow)))
 
 			# === LEAVE VARIABLE READY FOR NEXT LOOP
 			old_gray = frame_gray.copy()
-			p0 = cv2.goodFeaturesToTrack(old_gray, mask=None,
-											**self.feature_params)
+			p0 = cv2.goodFeaturesToTrack(old_gray, mask = None, **self.feature_params)
 			
 			c = cv2.waitKey(1)
-			print('{:d} de {:d} frames procesados'.format(frCount,frDelta))
-			if c == ord('q'): #Salir
+			print('\r{:d} de {:d} frames procesados'.format(frCount,frDelta) ,end ='')
+			if  c == ord('q'): #Salir
 				break
 			frCount += 1
 		cv2.namedWindow('stitched')
 		cv2.destroyWindow('stitched')
 		cv2.namedWindow('frame')
 		cv2.destroyWindow('frame')
-		return [sTiT, np.array(self.affines),self.frames]
+		return [sTiT,np.array(self.affines)]
 
 
 	def _initKf(self):
-		#if self.sub_df is not None and self.log_df is not None:
-		#idx = self.indexInLog
-		if self.fixaffine:
-			th0 = self.yaw[0]
-			self._kf = KalmanFilter(th0, 0.04, .04, .01)
-			self.nTheta = th0
-			self.tester = []
-		else:
-			self._kf = None
+		Warning('ESTOY ENTRANDO EN _initKf, no debería')
+		pass
+# 		#if self.sub_df is not None and self.log_df is not None:
+# 		#idx = self.indexInLog
+# 		if self.fixaffine:
+# 			th0 = self.yaw[0]
+# 			self._kf = KalmanFilter(th0,0.04,.04,.01)
+# 			self.nTheta = th0
+# 			self.tester = []
+# 		else:
+# 			self._kf = None
 
-	def _FixAffine2(self,affine):
-		Warning('affine ignorando escala!')
-		af = np.concatenate([affine,
-						   np.array([0,0,1]).reshape(1,3)], axis=0)
-
-		s, d_theta, T = get_s_theta_T_fromAffine(af)
-		
-		return get_Affine_From_s_theta_T((1+s)/2, d_theta, T)
 
 	def _FixAffine(self,affine):
 		#TODO Not WorkingYet
 
 		af = np.concatenate([affine,
-							np.array([0,0,1]).reshape(1,3)], axis=0)
+							np.array([0,0,1]).reshape(1,3)],axis=0)
 
-		s, d_theta, T = get_s_theta_T_fromAffine(np.linalg.inv(af))
+		#dthMed = self.dyaw[self.frCount]
+		s,d_theta,T = get_s_theta_T_fromAffine(af)
 
-		scaleMatrix = np.array([[4.47307826e-08, 0.00000000e+00],
-								[0.00000000e+00, 3.23819902e-08]])
+		 
+		dth = 0.5*(d_theta +self.dimu[self.frCount])
 		
-		scaleMatrix = np.linalg.inv(scaleMatrix)
+		s = (s+1)/2
 
-		idx 			= [self.frCount-1, self.frCount]
-		variables 		= [self.yaw, self.lon, self.lat]
-		dth, dlo, dla 	= [var[idx[1]]-var[idx[0]] for var in variables]
-		
-		Tgps = np.dot(scaleMatrix, np.array([dlo, dla]))
-		dth = -dth
-		self.theta.append(d_theta)
-		self.imuth.append(dth)
-		print (d_theta-dth)
-		self.ndth = d_theta*3/4 + dth/4
-		#self.T    = T * 3/4 + Tgps*1/4
-		#self.ndth 	= d_theta
-		self.T 		= T
-		
-		newAff = get_Affine_From_s_theta_T(s, self.ndth, self.T)
-		newAff = np.concatenate([newAff,
-							np.array([0,0,1]).reshape(1,3)], axis=0)
-		return np.linalg.inv(newAff)[:2,:]
+		newAff = get_Affine_From_s_theta_T(s,dth,T)
+
+		return newAff
 
 
 	def pid_qLvl(self):
 
 		eNcorNew = self.nCorRef - self.corDetected[-1]
 		self.pid.updatePID(eNcorNew)
-		self.qLvl = self.pid.getCor()
+		self.qLvl = 0.9*self.pid.getCor()
 		if self.qLvl < 0 or 1 < self.qLvl:
 			self.qLvl = np.random.random()*0.5 + 0.1
 
